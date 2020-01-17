@@ -293,6 +293,15 @@ module.exports = function(RED) {
                 } else if (msg.payload === 'toggle') {
                     handled = true;
                     send(inverse(lastEvent), true);
+                } else if (msg.payload === 'send_state') {
+                    handled = true;
+                    if (!isSuspended()) {
+                        const isOff = events.off.moment.isAfter(events.on.moment);
+                        node.send({
+                            topic: isOff ? events.off.topic : events.on.topic,
+                            payload: isOff ? events.off.payload : events.on.payload
+                        });
+                    }
                 } else if (msg.payload === 'info' || msg.payload === 'info_local') {
                     handled = true;
                     const payload = _.pick(config, Object.keys(configuration));

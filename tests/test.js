@@ -564,6 +564,60 @@ describe('schedex', function() {
         console.log(duration);
         assert.strictEqual(Math.round(duration), 59);
     });
+    it('#67 should send correct send_state', function() {
+        let node = newNode({
+            ontime: moment()
+                .subtract(10, 'minute')
+                .format('HH:mm'),
+            offtime: moment()
+                .add(10, 'minute')
+                .format('HH:mm'),
+            onpayload: 'onpayload',
+            ontopic: 'ontopic'
+        });
+        node.emit('input', { payload: 'send_state' });
+        assert(node.sent(0).payload.indexOf('onpayload') === 0, 'on payload not received');
+        assert(node.sent(0).topic.indexOf('ontopic') === 0, 'on topic not received');
+
+        node = newNode({
+            ontime: moment()
+                .add(10, 'minute')
+                .format('HH:mm'),
+            offtime: moment()
+                .subtract(10, 'minute')
+                .format('HH:mm'),
+            offpayload: 'offpayload',
+            offtopic: 'offtopic'
+        });
+        node.emit('input', { payload: 'send_state' });
+        assert.strictEqual(1, node.sent().length);
+        assert(node.sent(0).payload.indexOf('offpayload') === 0, 'off payload not received');
+        assert(node.sent(0).topic.indexOf('offtopic') === 0, 'off topic not received');
+
+        // Now suspend our existing node programmatically and assert no change to sent messages.
+        node.emit('input', {
+            payload: {
+                suspended: true
+            }
+        });
+        node.emit('input', { payload: 'send_state' });
+        assert.strictEqual(1, node.sent().length);
+        assert(node.sent(0).payload.indexOf('offpayload') === 0, 'off payload not received');
+        assert(node.sent(0).topic.indexOf('offtopic') === 0, 'off topic not received');
+
+        // Configure in a suspended state and assert nothing is sent.
+        node = newNode({
+            mon: false,
+            tue: false,
+            wed: false,
+            thu: false,
+            fri: false,
+            sat: false,
+            sun: false
+        });
+        node.emit('input', { payload: 'send_state' });
+        assert.strictEqual(0, node.sent().length);
+    });
     it('should send something when triggered', function(done) {
         this.timeout(60000 * 5);
         console.log(`\t[${this.test.title}] will take 3 minutes, please wait...`);
