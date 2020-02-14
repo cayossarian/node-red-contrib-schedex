@@ -27,9 +27,14 @@ const { assert } = require('chai');
 const _ = require('lodash');
 const moment = require('moment');
 const mock = require('node-red-contrib-mock-node');
+const SunCalc = require('suncalc2');
 const nodeRedModule = require('../index.js');
 
-function newNode(configOverrides) {
+const enableDebug = (nrModule, node1) => {
+    node1.context().global.set('schedex', { debug: true });
+};
+
+function newNode(configOverrides, preConfigureNodeCallback) {
     const config = {
         name: 'test-node',
         suspended: false,
@@ -58,7 +63,7 @@ function newNode(configOverrides) {
     if (configOverrides) {
         _.assign(config, configOverrides);
     }
-    return mock(nodeRedModule, config);
+    return mock(nodeRedModule, config, null, preConfigureNodeCallback);
 }
 
 function testInfoCommand(infoCommand, dateFormatter) {
@@ -255,6 +260,35 @@ function testInfoCommand(infoCommand, dateFormatter) {
 }
 
 describe('schedex', function() {
+    it('issue#57 nadir issues', function(done) {
+        this.timeout(60000 * 5);
+        console.log(`\t[${this.test.title}] will take 10-ish seconds, please wait...`);
+        const node = newNode({
+            ontime: 'nadir',
+            offtime: '',
+            offoffset: 0,
+            offrandomoffset: '0'
+        });
+        // Nadir is 00:16:06 so set now to be just  before
+        // so it will fire within a few seconds.
+        const now = moment('2020-02-14T00:16:01');
+        node.now = function() {
+            return now.clone();
+        };
+        // Trigger some events so the node recalculates the on time
+        node.emit('input', { payload: { suspended: true } });
+        node.emit('input', { payload: { suspended: false } });
+
+        const events = node.schedexEvents();
+        assert.strictEqual(events.on.moment.toISOString(), '2020-02-14T00:16:06.000Z');
+
+        setTimeout(function() {
+            assert.strictEqual(node.sent(0).payload, 'on payload');
+            assert.strictEqual(node.sent(0).topic, 'on topic');
+            assert.strictEqual(events.on.moment.toISOString(), '2020-02-15T00:16:05.000Z');
+            done();
+        }, 10000);
+    });
     it('issue#66 should schedule correctly with a singular on or off', function(done) {
         this.timeout(60000 * 5);
         console.log(`\t[${this.test.title}] will take 1-ish minutes, please wait...`);
@@ -418,7 +452,7 @@ describe('schedex', function() {
     });
     it('issue#37 should pass through the message object', function() {
         // Start with passthroughunhandled disabled, we should get nothing sent
-        const node = newNode({ passthroughunhandled: false });
+        const node = newNode({ passthroughunhandled: false }, enableDebug);
         node.emit('input', { payload: 'wibble' });
         assert.strictEqual(node.sent().length, 0);
 
@@ -433,18 +467,35 @@ describe('schedex', function() {
     });
     it('issue#56 suncalc falling over DST changes', function() {
         const now = moment('2019-10-26 22:00:00.000');
-        const node = newNode({
-            ontime: 'sunset',
-            offtime: '21:00'
-        });
+
+        const sunCalcTimes = SunCalc.getTimes(
+            now
+                .clone()
+                .add(1, 'day')
+                .hour(0)
+                .minute(0)
+                .second(0)
+                .toDate(),
+            51.5050793,
+            -0.1225863
+        );
+        console.log(sunCalcTimes.sunset);
+
+        const node = newNode({ ontime: 'sunset', offtime: '21:00' }, enableDebug);
+
         node.now = function() {
             return now.clone();
         };
         // Trigger some events so the node recalculates the on time
         node.emit('input', { payload: { suspended: true } });
         node.emit('input', { payload: { suspended: false } });
-        // Expecting Sun Oct 27 2019 16:45:40 GMT+0000
+        // Expecting 2019-10-25T16:47:35.000Z
         // console.log(node.schedexEvents().on.moment.toString());
+        // const expected
+        // assert.strictEqual(
+        //     node.schedexEvents().on.moment.toISOString(),
+        //     '2019-10-27T16:49:33.000Z'
+        // );
         assert.ok(
             node.schedexEvents().on.moment.isSame(moment('2019-10-27 16:45:00.000'), 'minute'),
             `[${node
@@ -462,6 +513,19 @@ describe('schedex', function() {
         node.now = function() {
             return now.clone();
         };
+
+        const sunCalcTimes = SunCalc.getTimes(
+            now
+                .clone()
+                .hour(0)
+                .minute(0)
+                .second(0)
+                .toDate(),
+            51.5050793,
+            -0.1225863
+        );
+        console.log(sunCalcTimes.sunset);
+
         // Trigger some events so the node recalculates the on time
         node.emit('input', { payload: { suspended: true } });
         node.emit('input', { payload: { suspended: false } });

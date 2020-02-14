@@ -68,9 +68,18 @@ module.exports = function(RED) {
     RED.nodes.registerType('schedex', function(config) {
         RED.nodes.createNode(this, config);
         const node = this;
+        const globalConfig = { debug: false };
         const events = {};
         // Assume the node is off initially
         let lastEvent = events.off;
+
+        function getGlobalConfig() {
+            return _.assign(globalConfig, node.context().global.get('schedex'));
+        }
+
+        function debug(...args) {
+            if (getGlobalConfig().debug) node.log.apply(node.log, args);
+        }
 
         // Make sure these two props are proper booleans.
         config.onrandomoffset = !!config.onrandomoffset;
@@ -146,12 +155,14 @@ module.exports = function(RED) {
             } else if (status === Status.ERROR) {
                 message.push(error);
             }
-
-            node.status({ fill, shape, text: message.join(' ') });
+            const text = message.join(' ');
+            debug(`status: fill [${fill}] shape [${shape}] text [${text}]`);
+            node.status({ fill, shape, text });
         }
 
         function send(event, manual) {
             lastEvent = event;
+            debug(`send: topic [${event.topic}] payload [${event.payload}]`);
             node.send({ topic: event.topic, payload: event.payload });
             setStatus(Status.FIRED, { event, manual });
         }
@@ -174,45 +185,60 @@ module.exports = function(RED) {
 
             const now = node.now();
             const weekdayConfig = getWeekdayConfig();
-
-            event.moment = node.now();
+            let day = 0;
+            event.moment = node.now().millisecond(0);
             if (firedNow) {
                 // We've already fired today so start by examining tomorrow
                 event.moment.add(1, 'day');
+                day = 1;
             }
+            debug(`schedule: event fired now [${firedNow}] date [${event.moment.toString()}]`);
 
             let valid = false;
-            let day = 0;
+            const clockTime = new RegExp('(\\d+):(\\d+)', 'u').exec(event.time);
+
             // Today is day 0 and we try seven days into the future
             while (!valid && day <= 7) {
-                const matches = new RegExp('(\\d+):(\\d+)', 'u').exec(event.time);
-                if (matches && matches.length) {
-                    event.moment = event.moment.hour(+matches[1]).minute(+matches[2]);
+                if (clockTime && clockTime.length) {
+                    event.moment = event.moment
+                        .hour(+clockTime[1])
+                        .minute(+clockTime[2])
+                        .second(0);
                 } else {
-                    const sunCalcTimes = SunCalc.getTimes(
-                        event.moment.toDate(),
-                        config.lat,
-                        config.lon
-                    );
-                    const date = sunCalcTimes[event.time];
-                    if (!date) {
+                    // #57 Suncalc appears to give the best results if you
+                    // calculate at midday.
+                    const sunDate = event.moment
+                        .hour(12)
+                        .minute(0)
+                        .second(0)
+                        .toDate();
+                    const sunTimes = SunCalc.getTimes(sunDate, config.lat, config.lon);
+                    const sunTime = sunTimes[event.time];
+                    if (!sunTime) {
                         setStatus(Status.ERROR, { error: `Invalid time [${event.time}]` });
                         return false;
                     }
-                    event.moment = moment(date);
+                    // #57 Nadir appears to work differently to other sun times
+                    // in that it will calculate tomorrow's nadir if the time is
+                    // too close to today's nadir. So we just take the time and
+                    // apply that to the event's moment. That's doesn't yield a
+                    // perfect suntime but it's close enough.
+                    event.moment
+                        .hour(sunTime.getHours())
+                        .minute(sunTime.getMinutes())
+                        .second(sunTime.getSeconds());
                 }
 
-                event.moment.seconds(0).millisecond(0);
                 if (event.offset) {
-                    let adjustment = event.offset;
-                    if (event.randomoffset) {
-                        adjustment = event.offset * Math.random();
-                    }
-                    event.moment.add(adjustment, 'minutes');
+                    event.moment.add(
+                        event.randomoffset ? event.offset * Math.random() : event.offset,
+                        'minutes'
+                    );
                 }
 
                 valid =
                     weekdayConfig[event.moment.isoWeekday() - 1] && event.moment.isAfter(now);
+                debug(`schedule: day [${day}] [${event.moment.toString()}] valid [${valid}]`);
                 if (!valid) {
                     event.moment.add(1, 'day');
                     day++;
