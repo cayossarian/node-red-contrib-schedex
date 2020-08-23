@@ -14,7 +14,8 @@
         "start": "mkdir -p .node-red/node_modules && ln -sf $PWD $PWD/.node-red/node_modules/node-red-contrib-schedex && node-red -u .node-red",
         "test": "nyc --reporter=html node_modules/.bin/mocha -R spec ./tests/test.js --exit",
         "readme2html": "node_modules/.bin/markdown README.md -f gfm",
-        "update-dependencies": "./node_modules/.bin/ncu -u && npm install"
+        "update-dependencies": "./node_modules/.bin/ncu -u && npm install",
+        "lint": "eslint ."
     },
     "author": "@biddster",
     "license": "MIT",
@@ -31,11 +32,11 @@
         "suncalc2": "^1.8.1"
     },
     "devDependencies": {
+        "@hapi/eslint-config-hapi": "13.0.2",
+        "@hapi/eslint-plugin-hapi": "4.3.5",
+        "babel-eslint": "10.1.0",
         "chai": "^4.2.0",
         "eslint": "^7.7.0",
-        "eslint-config-airbnb-base": "^14.2.0",
-        "eslint-config-prettier": "^6.11.0",
-        "eslint-plugin-import": "^2.22.0",
         "husky": "^4.2.5",
         "lint-staged": "^10.2.11",
         "markdown-to-html": "0.0.13",
@@ -57,28 +58,21 @@
         }
     },
     "eslintConfig": {
-        "env": {
-            "es6": true,
-            "node": true,
-            "mocha": true
+        "extends": "@hapi/eslint-config-hapi",
+        "parser": "babel-eslint",
+        "parserOptions": {
+            "ecmaVersion": 2020,
+            "sourceType": "script"
         },
-        "extends": [
-            "airbnb-base",
-            "prettier"
-        ],
         "overrides": [
             {
                 "files": [
                     "*.js"
                 ],
                 "rules": {
-                    "func-names": "off",
-                    "max-lines-per-function": "off",
-                    "global-require": "off",
-                    "no-plusplus": "off",
-                    "no-param-reassign": "off",
-                    "no-console": "off",
-                    "no-multi-assign": "off"
+                    "@hapi/hapi/scope-start": "off",
+                    "comma-dangle": "off",
+                    "brace-style": "off"
                 }
             }
         ]
