@@ -1,4 +1,3 @@
-'use strict';
 /**
  * The MIT License (MIT)
  *
